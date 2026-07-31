@@ -143,6 +143,10 @@ Unofficial community implementation of the workflow from [Karpathy's LLM Wiki id
 
 See also: [lucasastorian/llmwiki](https://github.com/lucasastorian/llmwiki), [atomicmemory/llm-wiki-compiler](https://github.com/atomicmemory/llm-wiki-compiler). We are tracking Google's [Open Knowledge Format](https://github.com/GoogleCloudPlatform/knowledge-catalog/tree/main/okf) draft and will evaluate compatibility once the spec and tooling mature.
 
+For a Codex-focused engineering curriculum that adapts the pattern into a
+review-first maintainer wiki, promotion workflow, and reusable skill, see
+[Phelan164/codex-howto](https://github.com/Phelan164/codex-howto).
+
 ## License
 
 [MIT](LICENSE)
