@@ -721,13 +721,70 @@ class ExamplesSmokeTest(WikiTestCase):
         raw_src = EXAMPLES_DIR / "2026-03-19-claude-code-statusline-landscape.md"
         article_src = EXAMPLES_DIR / "claude-code-statusline-landscape.md"
         (self.root / "raw" / "ai-coding-tools").mkdir(parents=True)
-        (self.root / "raw" / "ai-coding-tools" / raw_src.name).write_text(raw_src.read_text())
+        (self.root / "raw" / "ai-coding-tools" / raw_src.name).write_text(
+            raw_src.read_text(encoding="utf-8"), encoding="utf-8"
+        )
         (self.root / "wiki" / "ai-coding-tools").mkdir(parents=True)
-        (self.root / "wiki" / "ai-coding-tools" / article_src.name).write_text(article_src.read_text())
+        (self.root / "wiki" / "ai-coding-tools" / article_src.name).write_text(
+            article_src.read_text(encoding="utf-8"), encoding="utf-8"
+        )
         (self.root / "wiki" / "index.md").write_text("# Knowledge Base Index\n")
         (self.root / "wiki" / "log.md").write_text("# Wiki Log\n")
         result = run_checker(self.root)
         self.assertIn("0 fidelity suspect(s)", result.stdout)
+        self.assertIn("0 evidence error(s)", result.stdout)
+
+
+class RawFenceEvidenceTest(WikiTestCase):
+    def test_fenced_raw_quote_is_evidence(self):
+        raw = PLAIN_RAW.replace(
+            "No numeric facts here at all.",
+            "Log excerpt:\n\n```\nSep 08 11:00:41 host systemd[1]: "
+            "service: Deactivated successfully.\n```\n",
+        )
+        article = PLAIN_ARTICLE.replace(
+            "There were 42 users; the ratio was 3.14; founded in 2026.",
+            'The unit reported "Deactivated successfully".',
+        )
+        plain_wiki(self.root, "a.md", article, raw=raw, raw_name="plain.md")
+        result = run_checker(self.root)
+        self.assertIn("0 fidelity suspect(s)", result.stdout)
+
+    def test_fenced_raw_number_is_evidence(self):
+        raw = PLAIN_RAW.replace(
+            "No numeric facts here at all.",
+            "Measured:\n\n```\nuptime was 99.9% for the window\n```\n",
+        )
+        article = PLAIN_ARTICLE.replace(
+            "There were 42 users; the ratio was 3.14; founded in 2026.",
+            "Uptime was 99.9% for the window.",
+        )
+        plain_wiki(self.root, "a.md", article, raw=raw, raw_name="plain.md")
+        result = run_checker(self.root)
+        self.assertIn("0 fidelity suspect(s)", result.stdout)
+
+    def test_fenced_raw_date_is_evidence(self):
+        raw = PLAIN_RAW.replace(
+            "No numeric facts here at all.",
+            "Journal:\n\n```\nboot completed on 2031-09-12\n```\n",
+        )
+        article = PLAIN_ARTICLE.replace(
+            "There were 42 users; the ratio was 3.14; founded in 2026.",
+            "The boot completed on 2031-09-12.",
+        )
+        plain_wiki(self.root, "a.md", article, raw=raw, raw_name="plain.md")
+        result = run_checker(self.root)
+        self.assertIn("0 fidelity suspect(s)", result.stdout)
+
+
+class SchemaFileSkipTest(WikiTestCase):
+    def test_toplevel_agents_md_is_not_an_article(self):
+        make_wiki(self.root)
+        (self.root / "wiki" / "AGENTS.md").write_text(
+            "# Wiki conventions\n\nSchema file, no Raw field.\n"
+        )
+        result = run_checker(self.root)
+        self.assertNotIn("AGENTS.md", result.stdout)
         self.assertIn("0 evidence error(s)", result.stdout)
 
 
