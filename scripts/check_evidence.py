@@ -29,8 +29,8 @@ The exit code carries no information; the report is the interface.
 
 Usage: check_evidence.py [project-root] [article.md ...]
 Defaults: project-root is the current directory; all wiki/**/*.md
-articles except index.md and log.md are checked. Article paths may be
-absolute or relative to the project root.
+articles except the top-level index.md, log.md, and AGENTS.md are
+checked. Article paths may be absolute or relative to the project root.
 """
 
 import re
@@ -58,7 +58,7 @@ FENCE_OPEN_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
 FENCE_CLOSE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})[ \t]*$")
 WS_RE = re.compile(r"\s+")
 
-SKIP_FILES = {"index.md", "log.md"}
+SKIP_FILES = {"index.md", "log.md", "AGENTS.md"}
 
 
 @dataclass(frozen=True)
@@ -93,12 +93,15 @@ def is_fence_closer(line: str, char: str, length: int) -> bool:
     return bool(m and m.group(1)[0] == char and len(m.group(1)) >= length)
 
 
-def parse_document(text: str) -> Document:
+def parse_document(text: str, keep_fences: bool = False) -> Document:
     """Return the visible title, metadata header, and body.
 
     The metadata header is only the contiguous blockquote immediately
     after the first H1 outside a fence. A fence is a body boundary; its
-    removal must not promote a later blockquote into the header.
+    removal must not promote a later blockquote into the header. Article
+    candidates skip fenced blocks (commands and output are not prose
+    claims); raw evidence keeps them, because a raw's fenced source text
+    is exactly the evidence it exists to hold.
     """
     title = None
     header = []
@@ -112,12 +115,16 @@ def parse_document(text: str) -> Document:
         if fence_char:
             if is_fence_closer(line, fence_char, fence_len):
                 fence_char = None
+            if keep_fences and state == "body":
+                body.append(line)
             continue
         opener = fence_opener(line)
         if opener:
             fence_char, fence_len = opener
             if state == "after_title":
                 state = "body"
+            if keep_fences and state == "body":
+                body.append(line)
             continue
         if state == "before_title":
             if line.startswith("# "):
@@ -280,10 +287,12 @@ def contains(haystack: str, candidate: Candidate) -> bool:
 
 
 def source_content(path: Path) -> str:
-    """Raw file body with the metadata header removed. Collection
-    metadata (Source/Collected/Published) is bookkeeping, not evidence;
-    letting it match candidates would false-pass dates and years."""
-    document = parse_document(path.read_text(encoding="utf-8"))
+    """Raw file body with the metadata header removed, fenced source text
+    included. Collection metadata (Source/Collected/Published) is
+    bookkeeping, not evidence; letting it match candidates would
+    false-pass dates and years. But a raw's fenced blocks are source
+    content (journal lines, config, output), so they are evidence."""
+    document = parse_document(path.read_text(encoding="utf-8"), keep_fences=True)
     return normalize("\n".join(document.body))
 
 
