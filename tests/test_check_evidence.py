@@ -185,6 +185,60 @@ Claims 999K users with no evidence anywhere.
 """
 
 
+CALLOUT_ARTICLE = """# Callout article
+
+> Sources: Example, 2026-04-16
+> Raw: [ghostty](../../raw/ai-research/2026-04-17-ghostty.md)
+
+Ghostty has 42K stars.
+
+> [!NOTE]
+> My own reading: the 777K figure below is an illustration, not a source claim.
+
+> [!warning] Obsidian-style callout with a title
+> Another 888K number that appears nowhere in raw.
+"""
+
+FRONTMATTER_ARTICLE = """---
+title: Frontmatter article
+date: 2026-09-20
+tags:
+  - example
+---
+
+# Frontmatter article
+
+> Sources: Example, 2026-04-16
+> Raw: [ghostty](../../raw/ai-research/2026-04-17-ghostty.md)
+
+Ghostty has 42K stars.
+"""
+
+FRONTMATTER_BODY_STILL_CHECKED_ARTICLE = """---
+title: Frontmatter article
+date: 2026-09-20
+---
+
+# Frontmatter article
+
+> Sources: Example, 2026-04-16
+> Raw: [ghostty](../../raw/ai-research/2026-04-17-ghostty.md)
+
+Ghostty has 4242K stars.
+"""
+
+IGNORE_FILE_ARTICLE = """# Ignore-file article
+
+> Sources: Example, 2026-04-16
+> Raw: [ghostty](../../raw/ai-research/2026-04-17-ghostty.md)
+
+Ghostty has 42K stars.
+
+> %% editorial %%
+> This 666K number is my own annotation.
+"""
+
+
 def make_wiki(root: Path, log: str = ""):
     (root / "raw" / "ai-research").mkdir(parents=True)
     (root / "raw" / "ai-research" / "2026-04-17-ghostty.md").write_text(RAW_CONTENT)
@@ -759,6 +813,53 @@ class RawInventoryTest(WikiTestCase):
         result = run_checker(self.root)
         self.assertNotIn("raw/misc/notes.md", result.stdout)
         self.assertIn("raw/other/notes.md", result.stdout)
+
+
+class CalloutBlockTest(WikiTestCase):
+    def test_github_and_obsidian_callouts_are_not_quotations(self):
+        make_wiki(self.root)
+        (self.root / "wiki" / "ai-research" / "callout.md").write_text(CALLOUT_ARTICLE)
+        result = run_checker(self.root)
+        self.assertNotIn("777K", result.stdout)
+        self.assertNotIn("888K", result.stdout)
+
+
+class FrontmatterTest(WikiTestCase):
+    def test_yaml_frontmatter_is_not_evidence(self):
+        make_wiki(self.root)
+        (self.root / "wiki" / "ai-research" / "fm.md").write_text(FRONTMATTER_ARTICLE)
+        result = run_checker(self.root)
+        self.assertNotIn("2026-09-20", result.stdout)
+
+    def test_body_after_frontmatter_is_still_checked(self):
+        make_wiki(self.root)
+        (self.root / "wiki" / "ai-research" / "fm2.md").write_text(
+            FRONTMATTER_BODY_STILL_CHECKED_ARTICLE
+        )
+        result = run_checker(self.root)
+        self.assertIn("4242K", result.stdout)
+
+
+class EvidenceIgnoreFileTest(WikiTestCase):
+    def test_user_pattern_skips_block(self):
+        make_wiki(self.root)
+        (self.root / "wiki" / "ai-research" / "ign.md").write_text(IGNORE_FILE_ARTICLE)
+        (self.root / ".evidence-ignore").write_text("# editorial asides\n^>\\s*%%\n")
+        result = run_checker(self.root)
+        self.assertNotIn("666K", result.stdout)
+
+    def test_without_ignore_file_the_block_is_checked(self):
+        make_wiki(self.root)
+        (self.root / "wiki" / "ai-research" / "ign.md").write_text(IGNORE_FILE_ARTICLE)
+        result = run_checker(self.root)
+        self.assertIn("666K", result.stdout)
+
+    def test_invalid_pattern_warns_without_crashing(self):
+        make_wiki(self.root)
+        (self.root / ".evidence-ignore").write_text("^>[unclosed\n")
+        result = run_checker(self.root)
+        self.assertIn("invalid regex", result.stderr)
+        self.assertIn("# Evidence check", result.stdout)
 
 
 if __name__ == "__main__":

@@ -47,6 +47,11 @@ DATE_RE = re.compile(r"\d{4}-\d{2}(?:-\d{2})?")
 QUOTE_RES = [re.compile(r'"([^"\n]*)"'), re.compile(r"“([^”\n]*)”")]
 METADATA_RE = re.compile(r"^>\s*(Sources?|Raw|Collected|Published|Updated|Archived):")
 STATUS_LINE_RE = re.compile(r"^>\s*\*\*Status:")
+# Alert/callout blocks are structure, not quotation: GitHub alerts
+# (> [!NOTE]), Obsidian callouts (> [!info]), MkDocs admonitions.
+CALLOUT_LINE_RE = re.compile(r"^>\s*\[!")
+# Extra block openers to skip, loaded from <root>/.evidence-ignore.
+EXTRA_BLOCK_SKIP_RES: list[re.Pattern] = []
 LINK_RE = re.compile(r"\[([^\]]*)\]\(([^)]*)\)")
 INLINE_CODE_RE = re.compile(r"`[^`\n]*`")
 RAW_LINK_RE = re.compile(r"\(([^)]+\.md)[^)]*\)")
@@ -74,6 +79,34 @@ class Candidate:
     value: str
 
 
+def is_skipped_block_opener(stripped: str) -> bool:
+    """True for blockquote openers that are structure, not quotation."""
+    if STATUS_LINE_RE.match(stripped) or CALLOUT_LINE_RE.match(stripped):
+        return True
+    return any(r.match(stripped) for r in EXTRA_BLOCK_SKIP_RES)
+
+
+def load_extra_block_skips(root: Path) -> list[str]:
+    """Load <root>/.evidence-ignore into EXTRA_BLOCK_SKIP_RES.
+
+    One regex per line; blank lines and # comments are ignored.
+    Returns warnings for lines that do not compile.
+    """
+    warnings: list[str] = []
+    cfg = root / ".evidence-ignore"
+    if not cfg.is_file():
+        return warnings
+    for lineno, line in enumerate(cfg.read_text(encoding="utf-8").splitlines(), 1):
+        text = line.strip()
+        if not text or text.startswith("#"):
+            continue
+        try:
+            EXTRA_BLOCK_SKIP_RES.append(re.compile(text))
+        except re.error as exc:
+            warnings.append(f".evidence-ignore:{lineno}: invalid regex ({exc})")
+    return warnings
+
+
 def normalize(text: str) -> str:
     return WS_RE.sub(" ", text).strip()
 
@@ -99,6 +132,9 @@ def parse_document(text: str) -> Document:
     The metadata header is only the contiguous blockquote immediately
     after the first H1 outside a fence. A fence is a body boundary; its
     removal must not promote a later blockquote into the header.
+
+    A leading YAML frontmatter block is metadata and is dropped before
+    parsing.
     """
     title = None
     header = []
@@ -108,7 +144,16 @@ def parse_document(text: str) -> Document:
     fence_char = None
     fence_len = 0
 
-    for line in text.splitlines():
+    lines = text.splitlines()
+    # YAML frontmatter is metadata, not prose: drop a leading --- ... ---
+    # block (Obsidian, Jekyll, Hugo and MkDocs all use it).
+    if lines and lines[0].strip() == "---":
+        for i in range(1, len(lines)):
+            if lines[i].strip() == "---":
+                lines = lines[i + 1:]
+                break
+
+    for line in lines:
         if fence_char:
             if is_fence_closer(line, fence_char, fence_len):
                 fence_char = None
@@ -222,7 +267,7 @@ def extract_candidates(text: str) -> list[Candidate]:
 
     for line in lines:
         stripped = line.strip()
-        if STATUS_LINE_RE.match(stripped):
+        if is_skipped_block_opener(stripped):
             flush_blockquote()
             flush_paragraph()
             skip_status_block = True
@@ -361,6 +406,9 @@ def main(argv: list[str]) -> int:
     if not wiki_dir.is_dir():
         print(f"no wiki/ directory under {root}")
         return 1
+
+    for warning in load_extra_block_skips(root):
+        print(f"warning: {warning}", file=sys.stderr)
 
     articles = []
     for arg in argv[2:]:
