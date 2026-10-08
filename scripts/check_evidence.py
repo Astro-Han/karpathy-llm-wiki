@@ -26,6 +26,8 @@ compile-time locate-before-write rule and to judgment review. New prose
 forms extend this list in the docstring, not the regexes.
 
 The exit code carries no information; the report is the interface.
+Quote matching ignores blockquote markers, inline-code delimiters, and
+link destinations on both sides; quoted text and word boundaries remain.
 
 Usage: check_evidence.py [project-root] [article.md ...]
 Defaults: project-root is the current directory; all wiki/**/*.md
@@ -170,6 +172,19 @@ def strip_noise(text: str) -> str:
     return text
 
 
+def normalize_quote(text: str) -> str:
+    """Normalize quote formatting without discarding inline-code content."""
+    text = re.sub(r"^[ \t]*(?:>[ \t]*)+", "", text, flags=re.MULTILINE)
+    parts = []
+    end = 0
+    for code in INLINE_CODE_RE.finditer(text):
+        parts.append(LINK_RE.sub(r"\1", text[end:code.start()]))
+        parts.append(code.group(0)[1:-1])
+        end = code.end()
+    parts.append(LINK_RE.sub(r"\1", text[end:]))
+    return normalize("".join(parts))
+
+
 def keep_number(token: str) -> bool:
     token = token.strip()
     if SUFFIX_RE.search(token) or "," in token or "." in token:
@@ -204,7 +219,7 @@ def extract_candidates(text: str) -> list[Candidate]:
 
     def flush_blockquote():
         if blockquote:
-            joined = normalize(" ".join(blockquote))
+            joined = normalize_quote("\n".join(blockquote))
             if len(joined) >= 15:
                 candidates.append(Candidate("quote", joined))
             blockquote.clear()
@@ -212,12 +227,17 @@ def extract_candidates(text: str) -> list[Candidate]:
     def flush_paragraph():
         if paragraph:
             joined = normalize(" ".join(paragraph))
+            # Mask syntax by length so quote offsets still refer to the original
+            # text, including any inline code inside a surrounding quotation.
+            quote_scan = INLINE_CODE_RE.sub(lambda m: " " * len(m.group(0)), joined)
+            quote_scan = LINK_RE.sub(
+                lambda m: "[" + m.group(1) + "](" + " " * len(m.group(2)) + ")", quote_scan
+            )
             for quote_re in QUOTE_RES:
-                candidates.extend(
-                    Candidate("quote", m.group(1))
-                    for m in quote_re.finditer(joined)
-                    if len(m.group(1).strip()) >= 15
-                )
+                for match in quote_re.finditer(quote_scan):
+                    value = normalize_quote(joined[match.start(1):match.end(1)])
+                    if len(value) >= 15:
+                        candidates.append(Candidate("quote", value))
             paragraph.clear()
 
     for line in lines:
@@ -233,7 +253,7 @@ def extract_candidates(text: str) -> list[Candidate]:
             skip_status_block = False
         if stripped.startswith(">"):
             flush_paragraph()
-            content = strip_noise(stripped.lstrip(">").strip())
+            content = stripped
             blockquote.append(content)
             candidates.extend(extract_numeric_date_candidates(content))
             continue
@@ -241,7 +261,6 @@ def extract_candidates(text: str) -> list[Candidate]:
         if not stripped:
             flush_paragraph()
             continue
-        line = strip_noise(line)
         candidates.extend(extract_numeric_date_candidates(line))
         paragraph.append(line)
     flush_blockquote()
@@ -269,7 +288,8 @@ def raw_links_of(article_text: str) -> list[str]:
 
 def contains(haystack: str, candidate: Candidate) -> bool:
     if candidate.kind == "quote":
-        return candidate.value in haystack
+        return candidate.value in normalize_quote(haystack)
+    haystack = normalize(haystack)
     # Values must stand on their own, while sentence punctuation remains
     # valid. A month may not pass as the prefix of a full ISO date.
     right = r"(?!-\d{2})" if candidate.kind == "date" and len(candidate.value) == 7 else ""
@@ -284,7 +304,7 @@ def source_content(path: Path) -> str:
     metadata (Source/Collected/Published) is bookkeeping, not evidence;
     letting it match candidates would false-pass dates and years."""
     document = parse_document(path.read_text(encoding="utf-8"))
-    return normalize("\n".join(document.body))
+    return "\n".join(document.body)
 
 
 def check_article(article: Path, root: Path) -> tuple[list[str], list[str]]:
