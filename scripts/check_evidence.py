@@ -26,6 +26,8 @@ compile-time locate-before-write rule and to judgment review. New prose
 forms extend this list in the docstring, not the regexes.
 
 The exit code carries no information; the report is the interface.
+Quote matching ignores blockquote markers, inline-code delimiters, and
+link destinations on both sides; quoted text and word boundaries remain.
 
 Usage: check_evidence.py [project-root] [article.md ...]
 Defaults: project-root is the current directory; all wiki/**/*.md
@@ -49,6 +51,8 @@ METADATA_RE = re.compile(r"^>\s*(Sources?|Raw|Collected|Published|Updated|Archiv
 STATUS_LINE_RE = re.compile(r"^>\s*\*\*Status:")
 LINK_RE = re.compile(r"\[([^\]]*)\]\(([^)]*)\)")
 INLINE_CODE_RE = re.compile(r"`[^`\n]*`")
+QUOTE_CODE_RE = re.compile(r"(?<!`)(`+)(?!`)(.*?)(?<!`)\1(?!`)", re.DOTALL)
+QUOTE_LINK_OPEN_RE = re.compile(r"\[([^\]]*)\]\(")
 RAW_LINK_RE = re.compile(r"\(([^)]+\.md)[^)]*\)")
 NO_MATERIAL_HEADING_RE = re.compile(
     r"^## \[[^\]]*\]\s*ingest\s*\|\s*no material:\s*(\S+)", re.IGNORECASE
@@ -170,6 +174,54 @@ def strip_noise(text: str) -> str:
     return text
 
 
+def quote_link_spans(text: str) -> list[tuple[int, int, int, int]]:
+    """Locate links outside code, retaining label offsets and balanced destinations."""
+    masked = QUOTE_CODE_RE.sub(lambda m: " " * len(m.group(0)), text)
+    spans = []
+    consumed = 0
+    for link in QUOTE_LINK_OPEN_RE.finditer(masked):
+        if link.start() < consumed:
+            continue
+        depth = 1
+        cursor = link.end()
+        while cursor < len(masked):
+            char = masked[cursor]
+            if char == "\\":
+                cursor += 2
+                continue
+            if char == "(":
+                depth += 1
+            elif char == ")":
+                depth -= 1
+                if depth == 0:
+                    consumed = cursor + 1
+                    spans.append((link.start(), link.start(1), link.end(1), consumed))
+                    break
+            cursor += 1
+    return spans
+
+
+def normalize_quote(text: str) -> str:
+    """Remove quote formatting while retaining code and complete link-label text."""
+    text = re.sub(r"^[ \t]*(?:>[ \t]*)+", "", text, flags=re.MULTILINE)
+    visible = list(text)
+    for start, label_start, label_end, end in quote_link_spans(text):
+        visible[start:label_start] = [""] * (label_start - start)
+        visible[label_end:end] = [""] * (end - label_end)
+    for code in QUOTE_CODE_RE.finditer(text):
+        visible[code.start():code.start(2)] = [""] * len(code.group(1))
+        visible[code.end(2):code.end()] = [""] * len(code.group(1))
+    return normalize("".join(visible))
+
+
+def mask_quote_markup(text: str) -> str:
+    """Hide code and link destinations without changing quote-discovery offsets."""
+    masked = list(QUOTE_CODE_RE.sub(lambda m: " " * len(m.group(0)), text))
+    for _, _, label_end, end in quote_link_spans(text):
+        masked[label_end:end] = [" "] * (end - label_end)
+    return "".join(masked)
+
+
 def keep_number(token: str) -> bool:
     token = token.strip()
     if SUFFIX_RE.search(token) or "," in token or "." in token:
@@ -202,22 +254,22 @@ def extract_candidates(text: str) -> list[Candidate]:
     blockquote: list[str] = []
     paragraph: list[str] = []
 
-    def flush_blockquote():
+    def flush_blockquote() -> None:
         if blockquote:
-            joined = normalize(" ".join(blockquote))
+            joined = normalize_quote("\n".join(blockquote))
             if len(joined) >= 15:
                 candidates.append(Candidate("quote", joined))
             blockquote.clear()
 
-    def flush_paragraph():
+    def flush_paragraph() -> None:
         if paragraph:
             joined = normalize(" ".join(paragraph))
+            quote_scan = mask_quote_markup(joined)
             for quote_re in QUOTE_RES:
-                candidates.extend(
-                    Candidate("quote", m.group(1))
-                    for m in quote_re.finditer(joined)
-                    if len(m.group(1).strip()) >= 15
-                )
+                for match in quote_re.finditer(quote_scan):
+                    value = normalize_quote(joined[match.start(1):match.end(1)])
+                    if len(value) >= 15:
+                        candidates.append(Candidate("quote", value))
             paragraph.clear()
 
     for line in lines:
@@ -233,7 +285,7 @@ def extract_candidates(text: str) -> list[Candidate]:
             skip_status_block = False
         if stripped.startswith(">"):
             flush_paragraph()
-            content = strip_noise(stripped.lstrip(">").strip())
+            content = stripped
             blockquote.append(content)
             candidates.extend(extract_numeric_date_candidates(content))
             continue
@@ -241,7 +293,6 @@ def extract_candidates(text: str) -> list[Candidate]:
         if not stripped:
             flush_paragraph()
             continue
-        line = strip_noise(line)
         candidates.extend(extract_numeric_date_candidates(line))
         paragraph.append(line)
     flush_blockquote()
@@ -269,7 +320,8 @@ def raw_links_of(article_text: str) -> list[str]:
 
 def contains(haystack: str, candidate: Candidate) -> bool:
     if candidate.kind == "quote":
-        return candidate.value in haystack
+        return candidate.value in normalize_quote(haystack)
+    haystack = normalize(haystack)
     # Values must stand on their own, while sentence punctuation remains
     # valid. A month may not pass as the prefix of a full ISO date.
     right = r"(?!-\d{2})" if candidate.kind == "date" and len(candidate.value) == 7 else ""
@@ -284,7 +336,7 @@ def source_content(path: Path) -> str:
     metadata (Source/Collected/Published) is bookkeeping, not evidence;
     letting it match candidates would false-pass dates and years."""
     document = parse_document(path.read_text(encoding="utf-8"))
-    return normalize("\n".join(document.body))
+    return "\n".join(document.body)
 
 
 def check_article(article: Path, root: Path) -> tuple[list[str], list[str]]:
