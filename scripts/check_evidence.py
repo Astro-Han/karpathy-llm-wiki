@@ -51,6 +51,8 @@ METADATA_RE = re.compile(r"^>\s*(Sources?|Raw|Collected|Published|Updated|Archiv
 STATUS_LINE_RE = re.compile(r"^>\s*\*\*Status:")
 LINK_RE = re.compile(r"\[([^\]]*)\]\(([^)]*)\)")
 INLINE_CODE_RE = re.compile(r"`[^`\n]*`")
+QUOTE_CODE_RE = re.compile(r"(?<!`)(`+)(?!`)(.*?)(?<!`)\1(?!`)", re.DOTALL)
+QUOTE_LINK_OPEN_RE = re.compile(r"\[([^\]]*)\]\(")
 RAW_LINK_RE = re.compile(r"\(([^)]+\.md)[^)]*\)")
 NO_MATERIAL_HEADING_RE = re.compile(
     r"^## \[[^\]]*\]\s*ingest\s*\|\s*no material:\s*(\S+)", re.IGNORECASE
@@ -172,17 +174,52 @@ def strip_noise(text: str) -> str:
     return text
 
 
+def quote_link_spans(text: str) -> list[tuple[int, int, int, int]]:
+    """Locate links outside code, retaining label offsets and balanced destinations."""
+    masked = QUOTE_CODE_RE.sub(lambda m: " " * len(m.group(0)), text)
+    spans = []
+    consumed = 0
+    for link in QUOTE_LINK_OPEN_RE.finditer(masked):
+        if link.start() < consumed:
+            continue
+        depth = 1
+        cursor = link.end()
+        while cursor < len(masked):
+            char = masked[cursor]
+            if char == "\\":
+                cursor += 2
+                continue
+            if char == "(":
+                depth += 1
+            elif char == ")":
+                depth -= 1
+                if depth == 0:
+                    consumed = cursor + 1
+                    spans.append((link.start(), link.start(1), link.end(1), consumed))
+                    break
+            cursor += 1
+    return spans
+
+
 def normalize_quote(text: str) -> str:
-    """Normalize quote formatting without discarding inline-code content."""
+    """Remove quote formatting while retaining code and complete link-label text."""
     text = re.sub(r"^[ \t]*(?:>[ \t]*)+", "", text, flags=re.MULTILINE)
-    parts = []
-    end = 0
-    for code in INLINE_CODE_RE.finditer(text):
-        parts.append(LINK_RE.sub(r"\1", text[end:code.start()]))
-        parts.append(code.group(0)[1:-1])
-        end = code.end()
-    parts.append(LINK_RE.sub(r"\1", text[end:]))
-    return normalize("".join(parts))
+    visible = list(text)
+    for start, label_start, label_end, end in quote_link_spans(text):
+        visible[start:label_start] = [""] * (label_start - start)
+        visible[label_end:end] = [""] * (end - label_end)
+    for code in QUOTE_CODE_RE.finditer(text):
+        visible[code.start():code.start(2)] = [""] * len(code.group(1))
+        visible[code.end(2):code.end()] = [""] * len(code.group(1))
+    return normalize("".join(visible))
+
+
+def mask_quote_markup(text: str) -> str:
+    """Hide code and link destinations without changing quote-discovery offsets."""
+    masked = list(QUOTE_CODE_RE.sub(lambda m: " " * len(m.group(0)), text))
+    for _, _, label_end, end in quote_link_spans(text):
+        masked[label_end:end] = [" "] * (end - label_end)
+    return "".join(masked)
 
 
 def keep_number(token: str) -> bool:
@@ -217,22 +254,17 @@ def extract_candidates(text: str) -> list[Candidate]:
     blockquote: list[str] = []
     paragraph: list[str] = []
 
-    def flush_blockquote():
+    def flush_blockquote() -> None:
         if blockquote:
             joined = normalize_quote("\n".join(blockquote))
             if len(joined) >= 15:
                 candidates.append(Candidate("quote", joined))
             blockquote.clear()
 
-    def flush_paragraph():
+    def flush_paragraph() -> None:
         if paragraph:
             joined = normalize(" ".join(paragraph))
-            # Mask syntax by length so quote offsets still refer to the original
-            # text, including any inline code inside a surrounding quotation.
-            quote_scan = INLINE_CODE_RE.sub(lambda m: " " * len(m.group(0)), joined)
-            quote_scan = LINK_RE.sub(
-                lambda m: "[" + m.group(1) + "](" + " " * len(m.group(2)) + ")", quote_scan
-            )
+            quote_scan = mask_quote_markup(joined)
             for quote_re in QUOTE_RES:
                 for match in quote_re.finditer(quote_scan):
                     value = normalize_quote(joined[match.start(1):match.end(1)])

@@ -83,3 +83,55 @@ class MarkdownQuoteTest(WikiTestCase):
 
     def test_numeric_matching_keeps_its_existing_whitespace_normalization(self):
         self.check_quote("Uptime reached 99.9\n% last week.", "Uptime reached 99.9 % last week.")
+
+    def test_inline_code_in_link_label_matches_plain_source(self):
+        self.check_quote(
+            "The priority field controls the processing order.",
+            "> The [`priority` field](https://example.com) controls the processing order.",
+        )
+
+    def test_linked_code_in_raw_matches_a_different_destination(self):
+        self.check_quote(
+            "The [`priority` field](https://source.example) controls the processing order.",
+            '> The [`priority` field](https://article.example) controls the processing order.',
+        )
+
+    def test_changed_linked_code_is_still_reported(self):
+        output = self.check_quote(
+            "The priority field controls the processing order.",
+            "> The [`confidence` field](https://example.com) controls the processing order.",
+            expected_suspects=1,
+        )
+        self.assertIn("confidence", output)
+
+    def test_double_backtick_code_does_not_create_quote_candidates(self):
+        self.check_quote("No relevant evidence.", 'Example: ``print("This is only a code example")``')
+
+    def test_code_with_inner_backticks_does_not_create_quote_candidates(self):
+        self.check_quote("No relevant evidence.", 'Example: ``print(`value`, "This is only a code example")``')
+
+    def test_mismatched_backticks_do_not_hide_a_real_quote(self):
+        self.check_quote(
+            "No relevant evidence.",
+            'Example: ``prefix ` "This is a real unsupported quote"',
+            expected_suspects=1,
+        )
+
+    def test_balanced_parentheses_in_link_destination_are_masked(self):
+        self.check_quote("No relevant evidence.", '[link](https://example.com/a(b)"not-a-quotation-here")')
+
+    def test_quote_after_nested_link_destination_is_still_checked(self):
+        self.check_quote(
+            "No relevant evidence.",
+            '[link](https://example.com/a(b)"not-a-quotation-here") "This is a real unsupported quote"',
+            expected_suspects=1,
+        )
+
+    def test_nested_destination_and_code_label_normalize_together(self):
+        self.check_quote(
+            "The priority field controls the processing order.",
+            '> The [``priority`` field](https://example.com/a(b(c))) controls the processing order.',
+        )
+
+    def test_escaped_parenthesis_does_not_end_link_destination(self):
+        self.check_quote("No relevant evidence.", r'[link](https://example.com/a\)"not-a-quotation-here")')
