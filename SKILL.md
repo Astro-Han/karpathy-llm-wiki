@@ -48,7 +48,7 @@ Fetch a source into raw/, then compile it into wiki/ — unless the source adds 
 
 ### Fetch (raw/)
 
-1. Get the source content using whatever web or file tools your environment provides. If nothing can reach the source, ask the user to paste it directly.
+1. Get the source content using whatever web or file tools your environment provides. For web pages and public PDF URLs, if [Firecrawl](https://www.firecrawl.dev/?utm_source=karpathy-llm-wiki&utm_medium=integration) is available, use it to fetch the page or PDF as Markdown (it renders JavaScript and parses PDFs); otherwise use the built-in tools. If nothing can reach the source, ask the user to paste it directly.
 
 2. Pick a topic directory. Check existing `raw/` subdirectories first; reuse one if the topic is close enough. Create a new subdirectory only for genuinely distinct topics.
 
