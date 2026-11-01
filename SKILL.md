@@ -48,7 +48,7 @@ Fetch a source into raw/, then compile it into wiki/ — unless the source adds 
 
 ### Fetch (raw/)
 
-1. Get the source content using whatever web or file tools your environment provides. If nothing can reach the source, ask the user to paste it directly.
+1. Get the source content using whatever web or file tools your environment provides. If the user has set up Firecrawl and wants to use it, you may fetch public web pages and public PDFs through it as Markdown. Never send it a URL that carries credentials (tokens, keys or signatures in the query string, `user:password@`, signed or expiring links), a private or local address (localhost, private IPs, intranet names, `file://`), or anything behind a login; use the built-in tools for those, and also when Firecrawl fails or returns unusable Markdown. If nothing can reach the source, ask the user to paste it directly.
 
 2. Pick a topic directory. Check existing `raw/` subdirectories first; reuse one if the topic is close enough. Create a new subdirectory only for genuinely distinct topics.
 
@@ -56,7 +56,7 @@ Fetch a source into raw/, then compile it into wiki/ — unless the source adds 
    - Slug from source title, kebab-case, max 60 characters.
    - Published date unknown → omit the date prefix from the file name (e.g., `descriptive-slug.md`). The metadata Published field still appears; set it to `Unknown`.
    - If a file with the same name already exists, append a numeric suffix (e.g., `descriptive-slug-2.md`).
-   - Include metadata header: source URL, collected date, published date.
+   - Include metadata header: source URL (with any tokens, keys or signatures removed), collected date, published date.
    - Preserve original text. Clean formatting noise. Do not rewrite opinions.
 
    See `references/raw-template.md` for the exact format.

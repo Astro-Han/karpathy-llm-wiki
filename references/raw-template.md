@@ -1,6 +1,6 @@
 # {Title}
 
-> Source: {URL or origin description}
+> Source: {URL with any credentials removed, or origin description}
 > Collected: {YYYY-MM-DD}
 > Published: {YYYY-MM-DD or Unknown}
 
