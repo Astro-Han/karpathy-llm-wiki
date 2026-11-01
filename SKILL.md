@@ -56,7 +56,7 @@ Fetch a source into raw/, then compile it into wiki/ — unless the source adds 
    - Slug from source title, kebab-case, max 60 characters.
    - Published date unknown → omit the date prefix from the file name (e.g., `descriptive-slug.md`). The metadata Published field still appears; set it to `Unknown`.
    - If a file with the same name already exists, append a numeric suffix (e.g., `descriptive-slug-2.md`).
-   - Include metadata header: source URL, collected date, published date.
+   - Include metadata header: source URL (with any tokens, keys or signatures removed), collected date, published date.
    - Preserve original text. Clean formatting noise. Do not rewrite opinions.
 
    See `references/raw-template.md` for the exact format.
