@@ -50,7 +50,7 @@ See [examples/](examples/) for sample wiki pages, source files, and operation lo
 ## Install
 
 ```bash
-npx add-skill Astro-Han/karpathy-llm-wiki
+npx skills add Astro-Han/karpathy-llm-wiki
 ```
 
 Works with any tool that supports the [Agent Skills](https://agentskills.io) standard.
@@ -101,10 +101,10 @@ This skill follows the [agentskills.io](https://agentskills.io) open standard:
 
 | Tool | Install method |
 |------|----------------|
-| Claude Code | `npx add-skill Astro-Han/karpathy-llm-wiki` |
-| Cursor | `npx add-skill Astro-Han/karpathy-llm-wiki` |
+| Claude Code | `npx skills add Astro-Han/karpathy-llm-wiki` |
+| Cursor | `npx skills add Astro-Han/karpathy-llm-wiki` |
 | Codex CLI | Copy to `.agents/skills/karpathy-llm-wiki/` |
-| OpenCode | `npx add-skill Astro-Han/karpathy-llm-wiki` |
+| OpenCode | `npx skills add Astro-Han/karpathy-llm-wiki` |
 | Other tools | Copy `SKILL.md`, `references/`, and `scripts/` into the tool's skill directory |
 
 ## FAQ
